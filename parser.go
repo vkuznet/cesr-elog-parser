@@ -84,72 +84,7 @@ const (
 
 const separator = "========================================"
 
-func parseElogFileV1(r *os.File, sourcePath string) ([]ElogEntry, error) {
-	scanner := bufio.NewScanner(r)
-	// Some elog bodies can be large; increase scanner buffer.
-	scanner.Buffer(make([]byte, 1<<20), 1<<20)
-
-	var (
-		entries []ElogEntry
-		current ElogEntry
-		bodyBuf strings.Builder
-		state   = stateWaitREM
-	)
-
-	flush := func() {
-		if current.MID == "" && current.Author == "" {
-			return
-		}
-		current.SourceFile = sourcePath
-		raw := bodyBuf.String()
-		current.BodyRaw = strings.TrimSpace(raw)
-		current.BodyText = strings.TrimSpace(stripHTML(raw))
-		current.HasHTML = isHTML(raw)
-		current.HasPlot = hasPlotRef(raw)
-		splitAuthor(&current)
-		entries = append(entries, current)
-		current = ElogEntry{}
-		bodyBuf.Reset()
-	}
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		switch state {
-		case stateWaitREM:
-			if strings.TrimSpace(line) == "REM" {
-				state = stateHeader
-			}
-
-		case stateHeader:
-			if strings.HasPrefix(line, separator) {
-				// separator marks transition to body
-				state = stateBody
-				continue
-			}
-			parseHeaderLine(line, &current)
-
-		case stateBody:
-			// A new "REM" at the start of a line marks the next entry.
-			if strings.TrimSpace(line) == "REM" {
-				flush()
-				state = stateHeader
-				continue
-			}
-			bodyBuf.WriteString(line)
-			bodyBuf.WriteByte('\n')
-		}
-	}
-
-	// flush the last entry
-	flush()
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return entries, nil
-}
-
+// helper function to process elog file
 func parseElogFile(r *os.File, sourcePath string) ([]ElogEntry, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1<<20), 1<<20)

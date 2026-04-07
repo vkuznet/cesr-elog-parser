@@ -66,21 +66,6 @@ func process(inputDir, outputDir, ext string, workers int) {
 	}
 }
 
-// helper function to collect files, but it does not follow symlinks
-func collectFilesV1(dir, ext string) ([]string, error) {
-	var files []string
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && filepath.Ext(path) == ext {
-			files = append(files, path)
-		}
-		return nil
-	})
-	return files, err
-}
-
 // helper function to collect files which follow symlinks
 func collectFiles(dir, ext string) ([]string, error) {
 	var files []string
