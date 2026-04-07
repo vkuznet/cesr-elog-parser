@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"log"
 	"runtime"
 )
 
@@ -17,22 +16,6 @@ func main() {
 	flag.Parse()
 	process(*inputDir, *outputDir, *ext, *workers)
 	if *qdrant != "" && *col != "" {
-		p, err := ParseURLPort(*qdrant)
-		if err != nil {
-			log.Fatalf(err.Error())
-		}
-
-		qConfig := &QdrantConfig{
-			Url:        p.BaseURL,
-			Port:       p.Port,
-			Dimension:  *dim,
-			Collection: *col,
-			LogDir:     *outputDir,
-		}
-
-		err = inject2Qdrant(qConfig)
-		if err != nil {
-			log.Fatalf(err.Error())
-		}
+		injectRAGs(*outputDir, *qdrant, *col, *dim)
 	}
 }

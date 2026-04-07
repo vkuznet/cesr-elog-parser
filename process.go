@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -139,4 +141,31 @@ func collectFiles(dir, ext string) ([]string, error) {
 // baseName strips directory and extension.
 func baseName(path string) string {
 	return filepath.Base(path[:len(path)-len(filepath.Ext(path))])
+}
+
+func injectRAGs(logDir, endpoint, col string, dim int) {
+	entries := GetLogEntries(logDir, "ndjson")
+	var docs []RAGDoc
+	for _, e := range entries {
+		docs = append(docs, ToRAGDoc(e))
+	}
+	ctx := context.Background()
+	qcfg := Config{Endpoint: endpoint, Collection: col, Dimension: dim}
+	if strings.Contains(endpoint, "http") {
+		qcfg.Protocol = ProtocolHTTP
+	} else {
+		qcfg.Protocol = ProtocolGRPC
+	}
+	cfg := InjectConfig{
+		QdrantCfg: qcfg,
+		Docs:      docs,
+		BatchSize: 100,
+	}
+
+	ndocs, err := Inject(ctx, cfg)
+
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	log.Printf("successfully injected: %d docs into Qdrant DB: %+v", ndocs, qcfg)
 }
