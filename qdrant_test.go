@@ -114,7 +114,7 @@ func TestRAGDoc_ToPoint(t *testing.T) {
 
 func TestDummyEmbed_CorrectDimension(t *testing.T) {
 	for _, dim := range []int{4, 384, 1536} {
-		v := DummyEmbed(dim)("some text")
+		v := DummyEmbed(dim)("some text", 384)
 		if len(v) != dim {
 			t.Errorf("dim=%d: got len %d", dim, len(v))
 		}

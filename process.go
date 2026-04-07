@@ -147,7 +147,7 @@ func injectRAGs(logDir, endpoint, col string, dim int) {
 	entries := GetLogEntries(logDir, "ndjson")
 	var docs []RAGDoc
 	for _, e := range entries {
-		docs = append(docs, ToRAGDoc(e))
+		docs = append(docs, ToRAGDoc(e, dim))
 	}
 	ctx := context.Background()
 	qcfg := Config{Endpoint: endpoint, Collection: col, Dimension: dim}

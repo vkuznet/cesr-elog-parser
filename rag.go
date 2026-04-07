@@ -107,9 +107,9 @@ func DummyEmbed(dim int) func(string) []float32 {
 }
 */
 
-func DummyEmbed(text string) []float32 {
+func DummyEmbed(text string, dim int) []float32 {
 	// replace with OpenAI, bge-small, etc.
-	v := make([]float32, 384)
+	v := make([]float32, dim)
 	for i := range text {
 		v[i%384] += float32(text[i]) * 0.001
 	}

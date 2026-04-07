@@ -49,13 +49,13 @@ func ParseURLPort(input string) (*ParsedEndpoint, error) {
 	}, nil
 }
 
-func ToRAGDoc(e ElogEntry) RAGDoc {
+func ToRAGDoc(e ElogEntry, dim int) RAGDoc {
 	text := buildRAGText(e)
 
 	return RAGDoc{
 		ID:     uuid.New().String(),
 		Text:   text,
-		Vector: DummyEmbed(text),
+		Vector: DummyEmbed(text, dim),
 		Metadata: ElogMetadata{
 			MID:      e.MID,
 			Author:   e.Author,
