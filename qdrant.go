@@ -13,6 +13,35 @@ import (
 	"time"
 )
 
+type QdrantConfig struct {
+	Url        string
+	Collection string
+	LogDir     string
+	Dimension  int
+	Port       int
+}
+
+type CollectionInfo struct {
+	Result struct {
+		Status string `json:"status"`
+	} `json:"result"`
+}
+type CreateCollectionRequest struct {
+	Vectors struct {
+		Size     int    `json:"size"`
+		Distance string `json:"distance"`
+	} `json:"vectors"`
+}
+type Point struct {
+	ID      string                 `json:"id"`
+	Vector  []float32              `json:"vector"`
+	Payload map[string]interface{} `json:"payload"`
+}
+
+type UpsertRequest struct {
+	Points []Point `json:"points"`
+}
+
 type Client struct {
 	BaseURL    string
 	Collection string
@@ -77,6 +106,71 @@ func (c *Client) UpsertDocs(docs []RAGDoc) error {
 	return nil
 }
 
+func (c *Client) CollectionExists() (bool, error) {
+	url := fmt.Sprintf("%s/collections/%s", c.BaseURL, c.Collection)
+
+	resp, err := c.HTTP.Get(url)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 404 {
+		return false, nil
+	}
+
+	if resp.StatusCode >= 300 {
+		return false, fmt.Errorf("failed to check collection: status=%d", resp.StatusCode)
+	}
+
+	return true, nil
+}
+
+func (c *Client) CreateCollection(vectorSize int) error {
+	url := fmt.Sprintf("%s/collections/%s", c.BaseURL, c.Collection)
+
+	reqBody := CreateCollectionRequest{}
+	reqBody.Vectors.Size = vectorSize
+	reqBody.Vectors.Distance = "Cosine"
+
+	raw, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("PUT", url, bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("create collection failed: status=%d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func (c *Client) EnsureCollection(vectorSize int) error {
+	exists, err := c.CollectionExists()
+	if err != nil {
+		return err
+	}
+
+	if exists {
+		return nil
+	}
+
+	return c.CreateCollection(vectorSize)
+}
+
 func DummyEmbed(text string) []float32 {
 	// replace with OpenAI, bge-small, etc.
 	v := make([]float32, 384)
@@ -86,31 +180,15 @@ func DummyEmbed(text string) []float32 {
 	return v
 }
 
-type Point struct {
-	ID      string                 `json:"id"`
-	Vector  []float32              `json:"vector"`
-	Payload map[string]interface{} `json:"payload"`
-}
+func inject2Qdrant(qcfg *QdrantConfig) error {
 
-type UpsertRequest struct {
-	Points []Point `json:"points"`
-}
+	logDir := qcfg.LogDir
+	client := NewClient(qcfg.Url, qcfg.Port, qcfg.Collection)
 
-func inject2Qdrant(qdrantUrl, col, logDir string) error {
-	p, err := ParseURLPort(qdrantUrl)
-	if err != nil {
-		return err
+	// check if qdrant collection exist
+	if err := client.EnsureCollection(qcfg.Dimension); err != nil {
+		log.Fatal("collection init failed:", err)
 	}
-
-	/*
-		cfg := &qdrant.Config{Host: p.BaseURL, Port: p.Port}
-		client, err := qdrant.NewClient(cfg)
-		if err != nil {
-			return err
-		}
-	*/
-
-	client := NewClient(p.BaseURL, p.Port, col)
 
 	entries := GetLogEntries(logDir, "ndjson")
 

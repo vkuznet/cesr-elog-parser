@@ -13,10 +13,24 @@ func main() {
 	ext := flag.String("ext", ".log", "File extension to process (e.g. .log, .elog, .txt)")
 	qdrant := flag.String("qdrant-url", "", "qdrant URL, e.g. http://localhost:6333")
 	col := flag.String("qdrant-col", "", "qdrant collection")
+	dim := flag.Int("qdrant-dim", 384, "qdrant collection dimension")
 	flag.Parse()
 	process(*inputDir, *outputDir, *ext, *workers)
 	if *qdrant != "" && *col != "" {
-		err := inject2Qdrant(*qdrant, *col, *outputDir)
+		p, err := ParseURLPort(*qdrant)
+		if err != nil {
+			log.Fatalf(err.Error())
+		}
+
+		qConfig := &QdrantConfig{
+			Url:        p.BaseURL,
+			Port:       p.Port,
+			Dimension:  *dim,
+			Collection: *col,
+			LogDir:     *outputDir,
+		}
+
+		err = inject2Qdrant(qConfig)
 		if err != nil {
 			log.Fatalf(err.Error())
 		}
