@@ -15,7 +15,7 @@ func main() {
 	col := flag.String("qdrant-col", "", "qdrant collection")
 	flag.Parse()
 	process(*inputDir, *outputDir, *ext, *workers)
-	if *qdrant != "" {
+	if *qdrant != "" && *col != "" {
 		err := inject2Qdrant(*qdrant, *col, *outputDir)
 		if err != nil {
 			log.Fatalf(err.Error())

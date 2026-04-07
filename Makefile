@@ -19,6 +19,10 @@ all: build
 
 .PHONY: build
 build:
+	$(GO) build -ldflags="-s -w" -o $(BINARY) .
+
+.PHONY: build_static
+build_static:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 
 	$(GO) build -ldflags="-s -w -extldflags '-static'" -o $(BINARY) .
 
