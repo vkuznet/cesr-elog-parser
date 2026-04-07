@@ -13,11 +13,11 @@ import (
 // All fields are exported so they serialise cleanly to JSON / NDJSON.
 type ElogEntry struct {
 	// ---- identity ----
-	MID string `json:"mid"`            // $@MID@$: 69763
+	MID        string `json:"mid"`         // $@MID@$: 69763
 	SourceFile string `json:"source_file"` // originating file path
 
 	// ---- header fields ----
-	Date       string    `json:"date_raw"`   // original header string
+	Date       string    `json:"date_raw"` // original header string
 	ParsedDate time.Time `json:"date,omitempty"`
 	Author     string    `json:"author"`
 	Subject    string    `json:"subject"`
@@ -28,10 +28,10 @@ type ElogEntry struct {
 	Encoding   string    `json:"encoding,omitempty"`
 
 	// ---- body ----
-	BodyRaw  string `json:"body_raw"`            // original body text
-	BodyText string `json:"body_text"`           // HTML-stripped plain text
+	BodyRaw  string `json:"body_raw"`  // original body text
+	BodyText string `json:"body_text"` // HTML-stripped plain text
 	HasHTML  bool   `json:"has_html"`
-	HasPlot  bool   `json:"has_plot"`            // body references a plot file
+	HasPlot  bool   `json:"has_plot"` // body references a plot file
 
 	// ---- derived / for graph loading ----
 	AuthorFirst string `json:"author_first,omitempty"`
@@ -84,7 +84,7 @@ const (
 
 const separator = "========================================"
 
-func parseElogFile(r *os.File, sourcePath string) ([]ElogEntry, error) {
+func parseElogFileV1(r *os.File, sourcePath string) ([]ElogEntry, error) {
 	scanner := bufio.NewScanner(r)
 	// Some elog bodies can be large; increase scanner buffer.
 	scanner.Buffer(make([]byte, 1<<20), 1<<20)
@@ -142,6 +142,74 @@ func parseElogFile(r *os.File, sourcePath string) ([]ElogEntry, error) {
 	}
 
 	// flush the last entry
+	flush()
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func parseElogFile(r *os.File, sourcePath string) ([]ElogEntry, error) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 1<<20), 1<<20)
+
+	var (
+		entries []ElogEntry
+		current ElogEntry
+		bodyBuf strings.Builder
+		inBody  bool
+	)
+
+	flush := func() {
+		if current.MID == "" {
+			return
+		}
+		current.SourceFile = sourcePath
+
+		raw := bodyBuf.String()
+		current.BodyRaw = strings.TrimSpace(raw)
+		current.BodyText = strings.TrimSpace(stripHTML(raw))
+		current.HasHTML = isHTML(raw)
+		current.HasPlot = hasPlotRef(raw)
+		splitAuthor(&current)
+
+		entries = append(entries, current)
+
+		current = ElogEntry{}
+		bodyBuf.Reset()
+		inBody = false
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		trim := strings.TrimSpace(line)
+
+		// 🔑 NEW ENTRY DETECTED
+		if isMIDLine(trim) {
+			flush()
+			parseHeaderLine(trim, &current)
+			inBody = false
+			continue
+		}
+
+		// separator → switch to body
+		if strings.HasPrefix(line, separator) {
+			inBody = true
+			continue
+		}
+
+		if inBody {
+			bodyBuf.WriteString(line)
+			bodyBuf.WriteByte('\n')
+			continue
+		}
+
+		// otherwise still header
+		parseHeaderLine(line, &current)
+	}
+
+	// flush last entry
 	flush()
 
 	if err := scanner.Err(); err != nil {
@@ -217,4 +285,8 @@ func splitAuthor(e *ElogEntry) {
 	} else if len(parts) == 1 {
 		e.AuthorFirst = parts[0]
 	}
+}
+
+func isMIDLine(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), "$@MID@$:")
 }
