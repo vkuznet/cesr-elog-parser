@@ -165,7 +165,7 @@ func injectRAGs(logDir, endpoint, col string, dim int) {
 	ndocs, err := Inject(ctx, cfg)
 
 	if err != nil {
-		log.Fatalf(err.Error())
+		log.Fatal(err.Error())
 	}
 	log.Printf("successfully injected: %d docs into Qdrant DB: %+v", ndocs, qcfg)
 }

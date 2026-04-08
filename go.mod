@@ -3,7 +3,6 @@ module github.com/vkuznet/cesr-elog-parser
 go 1.26
 
 require (
-	github.com/google/uuid v1.6.0
 	github.com/qdrant/go-client v1.17.1
 )
 

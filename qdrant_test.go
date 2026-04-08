@@ -1,205 +1,170 @@
 package main
 
 import (
-	"context"
-	"errors"
+	"strings"
 	"testing"
+	"time"
 )
 
-// ── Stub backend ─────────────────────────────────────────────────────────────
+// ── ToRAGDoc / buildRAGText ───────────────────────────────────────────────────
 
-type stubClient struct {
-	ensureCalled bool
-	upserted     []Point
-	failUpsert   bool
-}
-
-func (s *stubClient) EnsureCollection(_ context.Context, _ int) error {
-	s.ensureCalled = true
-	return nil
-}
-
-func (s *stubClient) UpsertPoints(_ context.Context, pts []Point) error {
-	if s.failUpsert {
-		return errors.New("stub: upsert failed")
-	}
-	s.upserted = append(s.upserted, pts...)
-	return nil
-}
-
-func (s *stubClient) Close() error { return nil }
-
-// ── ParseEndpoint ─────────────────────────────────────────────────────────────
-
-func TestParseEndpoint_WithPort(t *testing.T) {
-	_, host, port, err := ParseEndpoint("http://localhost:6333")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if host != "localhost" || port != 6333 {
-		t.Errorf("got host=%q port=%d, want localhost:6333", host, port)
+func sampleEntry() ElogEntry {
+	return ElogEntry{
+		MID:        "69763",
+		SourceFile: "/data/logs/2021-10-15.log",
+		Author:     "Jane Smith",
+		AuthorFirst: "Jane",
+		AuthorLast:  "Smith",
+		Subject:    "Linac Forward Power Hiccup",
+		Category:   "LINAC",
+		System:     "RF",
+		BodyText:   "When about to inject, the beam degraded.",
+		HasHTML:    false,
+		HasPlot:    true,
+		ParsedDate: time.Date(2021, 10, 15, 11, 42, 53, 0, time.UTC),
 	}
 }
 
-func TestParseEndpoint_NoScheme(t *testing.T) {
-	_, host, port, err := ParseEndpoint("myhost:9999")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if host != "myhost" || port != 9999 {
-		t.Errorf("got host=%q port=%d", host, port)
-	}
-}
-
-func TestParseEndpoint_NoPort(t *testing.T) {
-	_, host, port, err := ParseEndpoint("http://myhost")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if host != "myhost" || port != 0 {
-		t.Errorf("got host=%q port=%d", host, port)
-	}
-}
-
-// ── ElogEntryToRAGDoc ────────────────────────────────────────────────────────
-
-func TestElogEntryToRAGDoc_IDDeterministic(t *testing.T) {
-	embed := DummyEmbed(4)
-	d1 := ElogEntryToRAGDoc("69763", "Jane", "2021-10-15", "LINAC", "RF", "Hiccup", "body", false, true, embed)
-	d2 := ElogEntryToRAGDoc("69763", "Jane", "2021-10-15", "LINAC", "RF", "Hiccup", "body", false, true, embed)
+func TestToRAGDoc_IDIsDeterministic(t *testing.T) {
+	e := sampleEntry()
+	d1 := ToRAGDoc(e, 4)
+	d2 := ToRAGDoc(e, 4)
 	if d1.ID != d2.ID {
 		t.Errorf("ID not deterministic: %q vs %q", d1.ID, d2.ID)
 	}
 }
 
-func TestElogEntryToRAGDoc_DifferentMIDsDifferentIDs(t *testing.T) {
-	embed := DummyEmbed(4)
-	d1 := ElogEntryToRAGDoc("1", "A", "", "", "", "", "x", false, false, embed)
-	d2 := ElogEntryToRAGDoc("2", "A", "", "", "", "", "x", false, false, embed)
-	if d1.ID == d2.ID {
-		t.Error("different MIDs should produce different IDs")
+func TestToRAGDoc_DifferentMIDsDifferentIDs(t *testing.T) {
+	e1, e2 := sampleEntry(), sampleEntry()
+	e2.MID = "99999"
+	if ToRAGDoc(e1, 4).ID == ToRAGDoc(e2, 4).ID {
+		t.Error("different MIDs must produce different IDs")
 	}
 }
 
-func TestElogEntryToRAGDoc_TextContainsMetadata(t *testing.T) {
-	embed := DummyEmbed(8)
-	d := ElogEntryToRAGDoc("1", "Jane Smith", "2021-10-15", "LINAC", "RF", "Hiccup", "body text", false, false, embed)
-	for _, want := range []string{"Jane Smith", "LINAC", "RF", "Hiccup", "body text"} {
-		if !contains(d.Text, want) {
-			t.Errorf("Text missing %q: %s", want, d.Text)
+func TestToRAGDoc_SourceFilePropagated(t *testing.T) {
+	e := sampleEntry()
+	d := ToRAGDoc(e, 4)
+	if d.Metadata.SourceFile != e.SourceFile {
+		t.Errorf("SourceFile not propagated: got %q", d.Metadata.SourceFile)
+	}
+}
+
+func TestBuildRAGText_ContainsMetadataAndBody(t *testing.T) {
+	e := sampleEntry()
+	text := buildRAGText(e)
+	for _, want := range []string{
+		"Jane Smith", "LINAC", "RF", "Linac Forward Power Hiccup",
+		"2021-10-15", "When about to inject",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("buildRAGText missing %q in:\n%s", want, text)
 		}
 	}
 }
 
-func TestRAGDoc_ToPoint(t *testing.T) {
-	embed := DummyEmbed(4)
-	d := ElogEntryToRAGDoc("99", "Bob", "2021-01-01", "Vac", "Ring", "Leak", "fixed it", false, false, embed)
-	p := d.ToPoint()
-
-	if p.ID != d.ID {
-		t.Errorf("point ID mismatch: %q vs %q", p.ID, d.ID)
-	}
-	if len(p.Vector) != 4 {
-		t.Errorf("vector length: got %d, want 4", len(p.Vector))
-	}
-	if p.Payload["mid"] != "99" {
-		t.Errorf("payload mid: %v", p.Payload["mid"])
-	}
-	if p.Payload["has_plot"] != false {
-		t.Errorf("payload has_plot: %v", p.Payload["has_plot"])
+func TestBuildRAGText_OptionalFieldsOmitted(t *testing.T) {
+	e := sampleEntry()
+	e.System = ""
+	e.Category = ""
+	text := buildRAGText(e)
+	if strings.Contains(text, "[System:") || strings.Contains(text, "[Category:") {
+		t.Errorf("empty fields should not appear in text: %s", text)
 	}
 }
 
-// ── DummyEmbed ───────────────────────────────────────────────────────────────
+// ── ToPoint payload schema alignment ─────────────────────────────────────────
 
-func TestDummyEmbed_CorrectDimension(t *testing.T) {
+func TestToPoint_RequiredChatbotFields(t *testing.T) {
+	e := sampleEntry()
+	p := ToRAGDoc(e, 4).ToPoint()
+
+	required := []string{"type", "source", "relative_path", "filename", "chunk_index", "text"}
+	for _, field := range required {
+		if _, ok := p.Payload[field]; !ok {
+			t.Errorf("payload missing required chatbot field %q", field)
+		}
+	}
+}
+
+func TestToPoint_TypeIsDocument(t *testing.T) {
+	p := ToRAGDoc(sampleEntry(), 4).ToPoint()
+	if p.Payload["type"] != "document" {
+		t.Errorf("type: got %v, want \"document\"", p.Payload["type"])
+	}
+}
+
+func TestToPoint_SourceIsAbsolutePath(t *testing.T) {
+	p := ToRAGDoc(sampleEntry(), 4).ToPoint()
+	if p.Payload["source"] != "/data/logs/2021-10-15.log" {
+		t.Errorf("source: got %v", p.Payload["source"])
+	}
+}
+
+func TestToPoint_FilenameIsBasename(t *testing.T) {
+	p := ToRAGDoc(sampleEntry(), 4).ToPoint()
+	for _, field := range []string{"filename", "relative_path"} {
+		if p.Payload[field] != "2021-10-15.log" {
+			t.Errorf("%s: got %v, want \"2021-10-15.log\"", field, p.Payload[field])
+		}
+	}
+}
+
+func TestToPoint_ChunkIndexIsZero(t *testing.T) {
+	p := ToRAGDoc(sampleEntry(), 4).ToPoint()
+	if p.Payload["chunk_index"] != 0 {
+		t.Errorf("chunk_index: got %v, want 0", p.Payload["chunk_index"])
+	}
+}
+
+func TestToPoint_TextMatchesBuildRAGText(t *testing.T) {
+	e := sampleEntry()
+	d := ToRAGDoc(e, 4)
+	p := d.ToPoint()
+	if p.Payload["text"] != d.Text {
+		t.Error("payload text does not match RAGDoc.Text")
+	}
+}
+
+func TestToPoint_ElogFieldsPresent(t *testing.T) {
+	p := ToRAGDoc(sampleEntry(), 4).ToPoint()
+	checks := map[string]any{
+		"mid":      "69763",
+		"author":   "Jane Smith",
+		"category": "LINAC",
+		"system":   "RF",
+		"subject":  "Linac Forward Power Hiccup",
+		"has_html": false,
+		"has_plot": true,
+	}
+	for k, want := range checks {
+		if p.Payload[k] != want {
+			t.Errorf("payload[%q]: got %v, want %v", k, p.Payload[k], want)
+		}
+	}
+}
+
+// ── DummyEmbed ────────────────────────────────────────────────────────────────
+
+func TestDummyEmbed_ExactDimension(t *testing.T) {
 	for _, dim := range []int{4, 384, 1536} {
-		v := DummyEmbed(dim)("some text", 384)
+		v := DummyEmbed("hello world", dim)
 		if len(v) != dim {
 			t.Errorf("dim=%d: got len %d", dim, len(v))
 		}
 	}
 }
 
-// ── Inject (uses stub backend indirectly via InjectConfig.Docs path) ─────────
+// ── deterministicID ───────────────────────────────────────────────────────────
 
-// injectWithStub bypasses New() to exercise the Inject logic with a stub.
-// In production you'd call nject; here we call the batch loop directly.
-func injectWithStub(ctx context.Context, stub Client, docs []RAGDoc, batchSize int) (int, error) {
-	if err := stub.EnsureCollection(ctx, 4); err != nil {
-		return 0, err
+func TestDeterministicID_UUIDShape(t *testing.T) {
+	id := deterministicID("69763")
+	// UUID format: 8-4-4-4-12 hex chars with hyphens = 36 chars total
+	if len(id) != 36 {
+		t.Errorf("ID length: got %d, want 36: %q", len(id), id)
 	}
-	points := make([]Point, len(docs))
-	for i, d := range docs {
-		points[i] = d.ToPoint()
+	parts := strings.Split(id, "-")
+	if len(parts) != 5 {
+		t.Errorf("ID not UUID-shaped: %q", id)
 	}
-	total := 0
-	for start := 0; start < len(points); start += batchSize {
-		end := start + batchSize
-		if end > len(points) {
-			end = len(points)
-		}
-		if err := stub.UpsertPoints(ctx, points[start:end]); err != nil {
-			return total, err
-		}
-		total += end - start
-	}
-	return total, nil
-}
-
-func TestInject_AllPoints(t *testing.T) {
-	embed := DummyEmbed(4)
-	docs := []RAGDoc{
-		ElogEntryToRAGDoc("1", "A", "", "X", "", "s1", "b1", false, false, embed),
-		ElogEntryToRAGDoc("2", "B", "", "Y", "", "s2", "b2", false, false, embed),
-		ElogEntryToRAGDoc("3", "C", "", "Z", "", "s3", "b3", false, false, embed),
-	}
-
-	stub := &stubClient{}
-	n, err := injectWithStub(context.Background(), stub, docs, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 3 {
-		t.Errorf("expected 3 injected, got %d", n)
-	}
-	if len(stub.upserted) != 3 {
-		t.Errorf("stub received %d points", len(stub.upserted))
-	}
-	if !stub.ensureCalled {
-		t.Error("EnsureCollection was not called")
-	}
-}
-
-func TestInject_BatchBoundary(t *testing.T) {
-	embed := DummyEmbed(4)
-	var docs []RAGDoc
-	for i := 0; i < 5; i++ {
-		docs = append(docs, ElogEntryToRAGDoc(
-			string(rune('0'+i)), "A", "", "X", "", "s", "b", false, false, embed,
-		))
-	}
-
-	stub := &stubClient{}
-	n, err := injectWithStub(context.Background(), stub, docs, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 5 {
-		t.Errorf("expected 5, got %d", n)
-	}
-}
-
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub ||
-		func() bool {
-			for i := 0; i <= len(s)-len(sub); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
-			return false
-		}())
 }
