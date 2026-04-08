@@ -201,6 +201,8 @@ func parseDate(s string) time.Time {
 		"Mon, 02 Jan 2006 15:04:05 -0700",
 		"2 Jan 2006 15:04:05 -0700",
 		"02 Jan 2006 15:04:05 -0700",
+		"2023-01-31T23:35:43-05:00",
+		time.RFC3339,
 		time.RFC1123Z,
 	}
 	for _, f := range formats {
