@@ -72,6 +72,7 @@ func (d RAGDoc) ToPoint() Point {
 			"mid":      d.Metadata.MID,
 			"author":   d.Metadata.Author,
 			"date":     d.Metadata.Date,
+			"date_ts":  parseDate(d.Metadata.Date).Unix(),
 			"category": d.Metadata.Category,
 			"system":   d.Metadata.System,
 			"subject":  d.Metadata.Subject,
